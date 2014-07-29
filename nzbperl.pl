@@ -51,6 +51,7 @@ $| = 1;
 select($old_fh);
 
 my $quitnow = 0;
+my $quitnice = 0;
 my $showinghelpscreen = 0;
 my $skipthisfile = 0;
 my $usecolor = 1;
@@ -1557,10 +1558,21 @@ sub handleKey {
 	}
 
 	my $key = shift;
-	if($key =~ /q/){
+	if($key =~ /Q/){
 		$quitnow = 1;
 		statMsg("User forced quit...exiting...");
 		# TODO: Close open files and delete parts files.
+		drawStatusMsgs();
+		updateBWStartPts();
+	}
+	elsif($key =~ /q/){
+		statMsg("User forced quit... Exiting after current download finishes.");
+		$totals{'total file ct'} -= scalar(@queuefileset);
+		foreach my $removefile (@queuefileset) {
+		    $totals{'total size'} -= $removefile->{'totalsize'};
+		}
+		@queuefileset = undef;
+		$quitnice = 1;
 		drawStatusMsgs();
 		updateBWStartPts();
 	}
@@ -1699,7 +1711,12 @@ sub drawConnInfos(){
 		if(not defined($conn->{'file'})){
 			if(scalar(@queuefileset) == 0){
 				# This connection has no more work to do...
-				$len = pc(sprintf("%d: Nothing left to do...", $i), 'bold cyan');
+				if($quitnice) {
+					$len = pc(sprintf("%d: Waiting for premature termination...", $i), 'bold red');
+				}
+				else {
+					$len = pc(sprintf("%d: Nothing left to do...", $i), 'bold cyan');
+				}
 				if(!defined($conn->{'sock'})){	# connection closed
 					$len += pc(" [", 'bold white');
 					$len += pc("closed", 'bold red');
@@ -2752,7 +2769,8 @@ sub showHelpScreen {
   '+'   : Nudge target bandwidth setting up 1 kBps
   '-'   : Nudge target bandwidth setting down 1 kBps
   'c'   : Toggle color on or off
-  'q'   : Quit the program (aborts all downloads)
+  'q'   : Quit the program after current downloads finish
+  'Q'   : Quit the program NOW (aborts all downloads)
   '?'   : Show this help screen
 
   Connected to $server:$port
