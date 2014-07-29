@@ -1,9 +1,9 @@
 #!/usr/bin/perl -w
 #
-# nzbperl.pl -- version 0.6.8
+# nzbperl.pl -- version 0.6.9
 # 
 # for more information:
-# http://noisybox.net/computers/nzbperl/ 
+# http://noisybox.net/computers/nzbperl/
 #
 #########################################################################################
 # Copyright (C) 2004 jason plumb
@@ -23,10 +23,13 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #########################################################################################
 
+require v5.14;
+
 use strict;
 use File::Basename;
 use IO::File;
 use IO::Select;
+use IO::Socket::IP;
 use XML::DOM;
 use Getopt::Long;
 use Time::HiRes;	# timer stuff
@@ -34,7 +37,7 @@ use Term::ReadKey;	# for no echo password reading
 use Term::Cap;
 use Cwd;
 
-my $version = '0.6.8';
+my $version = '0.6.9';
 my $ospeed = 9600; 
 my $terminal = Tgetent Term::Cap { TERM => undef, OSPEED => $ospeed };
 my $recv_chunksize = 5*1024;	# How big of chunks we read at once from a connection (this is pulled from ass)
@@ -65,7 +68,7 @@ my (	$server, $port, $user, $pw, $keepparts,
 		$dlrelative, $dlpath, $noupdate, $ssl, $socks_server, 
 		$socks_port, $proxy_user, $proxy_passwd, $http_proxy_server, $http_proxy_port, 
 		$dlcreate, $dlcreategrp, $noansi, $queuedir, $rcport,
-		$postDecProg, $postNzbProg, $ipv6, $forever, $DECODE_DBG_FILE, 
+		$postDecProg, $postNzbProg, $forever, $DECODE_DBG_FILE, 
 		$ifilterregex, $dthreadct, $diskfree
 		) =
 	(	'', -1, '', '', 0, 
@@ -95,7 +98,7 @@ my %optionsmap = ('server=s' => \$server, 'user=s' => \$user, 'pw=s' => \$pw,
 				'http_proxy=s' => \$http_proxy_server, 'dlcreate'=>\$dlcreate, 'dlcreategrp' => \$dlcreategrp,
 				'noansi' => \$noansi, 'queuedir=s' => \$queuedir, 'rcport=i' => \$rcport,
 				'postdec=s' => \$postDecProg, 'postnzb=s' => \$postNzbProg,
-				'ipv6' => \$ipv6, 'chunksize=s' => \$recv_chunksize, 'decodelog=s' => \$DECODE_DBG_FILE,
+				'chunksize=s' => \$recv_chunksize, 'decodelog=s' => \$DECODE_DBG_FILE,
 				'ifilter=s' => \$ifilterregex, 'dthreadct=s' => \$dthreadct, 'diskfree=s' => \$diskfree);
 
 if(defined(my $errmsg = handleCommandLineOptions())){
@@ -103,9 +106,6 @@ if(defined(my $errmsg = handleCommandLineOptions())){
 	exit 1;
 }
 
-if(not $ipv6){
-	use IO::Socket::INET;
-}
 if(not $nocolor){
 	use Term::ANSIColor;
 }
@@ -117,7 +117,7 @@ $uudeview =~ m#^([\w\s\.\_\-\/\\]+)$# or die "Invalid characters in uudeview pat
 
 displayShortGPL();
 
-checkForNewVersion();
+#checkForNewVersion();
 
 if($user and !$pw){
 	print "Password for '$user': ";
@@ -1049,27 +1049,13 @@ sub startRemoteControl {
 	eval "use XML::Simple;";
 	($@) and die "ERROR: XML::Simple required if using remote control...Please install it.";
 
-	$rc_sock = createRCMasterSocket();
-	
-	print "Remote control server socket created.\n";
-}
-
-#########################################################################################
-# creates the remote control master port, using either ipv4 or ipv6
-#########################################################################################
-sub createRCMasterSocket {
-	my $ret;
-
 	my %opts = (Listen => 5, LocalAddr => 'localhost',
 				LocalPort => $rcport,
 				Proto=>'tcp', Type => SOCK_STREAM, Reuse => 1); 
-	if($ipv6){
-		$ret = IO::Socket::INET6->new( %opts ) or die "Error creating remote control socket: $!";
-	}
-	else{
-		$ret = IO::Socket::INET->new( %opts ) or die "Error creating remote control socket: $!";
-	}
-	return $ret;
+
+	$rc_sock = IO::Socket::IP->new( %opts ) or die "Error creating remote control socket: $!";
+	
+	print "Remote control server socket created.\n";
 }
 
 #########################################################################################
@@ -1302,7 +1288,7 @@ sub createSingleConnection {
 	} 
 	else {
 	    porlp(sprintf('Attempting connection #%d to %s:%d...', $i+1, $server, $port), $silent);
-	    $osock = createNNTPClientSocket($paddr);
+	    $osock = IO::Socket::IP->new(PeerAddr => $paddr, Proto => 'tcp', Type => SOCK_STREAM);
 	}
 	if(!$osock){
 		porlp("Connection FAILED!\n", $silent);
@@ -1328,17 +1314,6 @@ sub createSingleConnection {
 	    pc("cipher: $cipher: Subject $subj: Issuer: $iss\n", "bold white");
 	}
 	return ($sock, $line);
-}
-
-#########################################################################################
-# Encapsulates creating a socket for use with NNTP.  Pulled to a sub because it can 
-# handle IPv6 sockets if the option is set.
-#########################################################################################
-sub createNNTPClientSocket {
-	my $paddr = shift;
-	my %opts = (PeerAddr => $paddr, Proto => 'tcp', Type => SOCK_STREAM);
-	$ipv6 and return IO::Socket::INET6->new(%opts); 
-	return IO::Socket::INET->new(%opts);
 }
 
 #########################################################################################
@@ -2634,12 +2609,6 @@ sub handleCommandLineOptions {
 		$http_proxy_server = trimWS($http_proxy_server);
 	}
 
-	if(defined($ipv6)){
-	    eval "use IO::Socket::INET6;";		# use ipv6 module if option given
-		($@) and return "ERROR: --ipv6 was given and the IO::Socket::INET6 module could not be found.\r\n" . 
-						" You must install the IO::Socket::INET6 module to use IPv6";
-	}
-
 	return undef;	# success
 }
 
@@ -2821,7 +2790,6 @@ print <<EOL
                    : use an alternative port.
  --proxy_user <u>  : Authenticate to the proxy using <u> as the username
  --proxy_passwd <p>: Use <p> as the proxy user password (otherwise prompted)
- --ipv6            : Use IPv6 sockets for communication
  --keepparts       : Keep all encoded parts files on disk after decoding
  --keepbroken      : Continue downloading files with broken/missing segments
                    : and leave the parts files on disk still encoded.

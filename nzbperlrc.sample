@@ -50,11 +50,6 @@ user=your_username
 #proxy_user=my-proxy-username
 #proxy_passwd=my-proxy-secretpassword
 
-# If you wish to use ipv6, uncomment this option.  If you don't know what
-# ipv6 is, then you're probably not using it (at least in 2005 this was
-# still generally the case)
-#ipv6
-
 # You can explicitly specify the location of uudeview.
 # The default is to be found in the path...
 #uudeview=/usr/local/bin/uudeview
